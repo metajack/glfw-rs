@@ -85,6 +85,25 @@ pub struct GammaRamp {
 
 pub type GLProc = ll::GLFWglproc;
 
+/// Initialises GLFW for use. Fails if the initialisation was unsuccessful.
+/// This is not needed when using `spawn`.
+pub fn init() {
+    do task::spawn_sched(task::PlatformThread) {
+        private::WindowDataMap::init();
+        match unsafe { ll::glfwInit() } {
+            ll::TRUE => (),
+            _        => fail!(~"Failed to initialize GLFW"),
+        }
+    }
+}
+
+/// Terminates the GLFW library. This is not needed when using `spawn`.
+pub fn terminate() {
+    do task::spawn_sched(task::PlatformThread) {
+        unsafe { ll::glfwTerminate(); }
+    }
+}
+
 /// Initialises GLFW on the main platform thread. Fails if the initialisation
 /// was unsuccessful.
 ///
