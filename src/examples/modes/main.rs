@@ -15,6 +15,9 @@
 
 extern mod glfw;
 
+#[link(name="glfw")]
+extern {}
+
 #[start]
 fn start(argc: int, argv: **u8) -> int {
     std::rt::start_on_main_thread(argc, argv, main)
@@ -22,19 +25,19 @@ fn start(argc: int, argv: **u8) -> int {
 
 fn main() {
     do glfw::start {
-        do glfw::Monitor::get_primary().map |monitor| {
+        glfw::Monitor::get_primary().map(|monitor| {
                 println!("{:s}:", monitor.get_name());
                 println!("    {:s}\n", monitor.get_video_mode().unwrap().to_str());
-        };
+        });
 
         println("Available monitors\n\
                      ------------------");
-        do glfw::Monitor::get_connected().map |monitor| {
+        glfw::Monitor::get_connected().map(|monitor| {
             println!("{:s}:", monitor.get_name());
 
-            do monitor.get_video_modes().map |mode| {
+            monitor.get_video_modes().map(|mode| {
                 println!("  {:s}", mode.to_str());
-            }
-        };
+            });
+        });
     }
 }
