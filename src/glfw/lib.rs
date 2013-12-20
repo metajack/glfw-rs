@@ -328,10 +328,12 @@ pub fn get_version_string() -> ~str {
     unsafe { str::raw::from_c_str(ffi::glfwGetVersionString()) }
 }
 
-pub trait ErrorCallback { fn call(&self, error: Error, description: ~str); }
+pub trait ErrorCallback {
+    fn call (&self, error: Error, description: ~str);
+}
 
 /// Wrapper for `glfwSetErrorCallback`.
-pub fn set_error_callback<Cb: ErrorCallback + Send>(callback: ~Cb) {
+pub fn set_error_callback(callback: ~ErrorCallback) {
     callbacks::set_error_callback(callback, (|ext_cb| {
         unsafe { ffi::glfwSetErrorCallback(Some(ext_cb)); }
     }));
@@ -341,11 +343,10 @@ pub fn set_error_callback<Cb: ErrorCallback + Send>(callback: ~Cb) {
 pub struct LogErrorHandler;
 
 impl ErrorCallback for LogErrorHandler {
-    fn call(&self, error: Error, desc: ~str) {
-        error!("GLFW Error: {} ({})", error.to_str(), desc);
+    fn call(&self, error: Error, description: ~str) {
+        error!("GLFW Error: {} ({})", error.to_str(), description);
     }
 }
-
 pub trait MonitorCallback { fn call(&self, monitor: &Monitor, event: MonitorEvent); }
 
 /// A struct that wraps a `*GLFWmonitor` handle.
@@ -670,9 +671,10 @@ impl WindowMode {
 }
 
 /// A struct that wraps a `*GLFWwindow` handle.
-pub struct Window {
+pub struct Window<'a> {
     ptr: *ffi::GLFWwindow,
     is_shared: bool,
+    callbacks: WindowCallbacks<'a>
 }
 
 /// A group of key modifiers
@@ -718,38 +720,38 @@ impl ToStr for Modifiers {
     }
 }
 
-pub trait WindowPosCallback { fn call(&self, window: &Window, xpos: i32, ypos: i32); }
-pub trait WindowSizeCallback { fn call(&self, window: &Window, width: i32, height: i32); }
-pub trait WindowCloseCallback { fn call(&self, window: &Window); }
-pub trait WindowRefreshCallback { fn call(&self, window: &Window); }
-pub trait WindowFocusCallback { fn call(&self, window: &Window, focused: bool); }
-pub trait WindowIconifyCallback { fn call(&self, window: &Window, iconified: bool); }
-pub trait FramebufferSizeCallback { fn call(&self, window: &Window, width: i32, height: i32); }
-pub trait MouseButtonCallback { fn call(&self, window: &Window, button: MouseButton, action: Action, modifiers: Modifiers); }
-pub trait CursorPosCallback { fn call(&self, window: &Window, xpos: f64, ypos: f64); }
-pub trait CursorEnterCallback { fn call(&self, window: &Window, entered: bool); }
-pub trait ScrollCallback { fn call(&self, window: &Window, xpos: f64, ypos: f64); }
-pub trait KeyCallback { fn call(&self, window: &Window, key: Key, scancode: c_int, action: Action, modifiers: Modifiers); }
-pub trait CharCallback { fn call(&self, window: &Window, character: char); }
+pub type WindowPosCallback<'a> = 'a |&Window, i32, i32|;
+pub type WindowSizeCallback<'a> = 'a |&Window, i32, i32|;
+pub type WindowCloseCallback<'a> = 'a |&Window|;
+pub type WindowRefreshCallback<'a> = 'a |&Window|;
+pub type WindowFocusCallback<'a> = 'a |&Window, bool|;
+pub type WindowIconifyCallback<'a> = 'a |&Window, bool|;
+pub type FramebufferSizeCallback<'a> = 'a |&Window, i32, i32|;
+pub type MouseButtonCallback<'a> = 'a |&Window, MouseButton, Action, Modifiers|;
+pub type CursorPosCallback<'a> = 'a |&Window, f64, f64|;
+pub type CursorEnterCallback<'a> = 'a |&Window, bool|;
+pub type ScrollCallback<'a> = 'a |&Window, f64, f64|;
+pub type KeyCallback<'a> = 'a |&Window, Key, c_int, Action, Modifiers|;
+pub type CharCallback<'a> = 'a |&Window, char|;
 
 /// Holds the callbacks associated with a window
-struct WindowCallbacks {
-    pos_callback:                Option<~WindowPosCallback>,
-    size_callback:               Option<~WindowSizeCallback>,
-    close_callback:              Option<~WindowCloseCallback>,
-    refresh_callback:            Option<~WindowRefreshCallback>,
-    focus_callback:              Option<~WindowFocusCallback>,
-    iconify_callback:            Option<~WindowIconifyCallback>,
-    framebuffer_size_callback:   Option<~FramebufferSizeCallback>,
-    mouse_button_callback:       Option<~MouseButtonCallback>,
-    cursor_pos_callback:         Option<~CursorPosCallback>,
-    cursor_enter_callback:       Option<~CursorEnterCallback>,
-    scroll_callback:             Option<~ScrollCallback>,
-    key_callback:                Option<~KeyCallback>,
-    char_callback:               Option<~CharCallback>,
+struct WindowCallbacks<'a> {
+    pos_callback:                Option<WindowPosCallback<'a>>,
+    size_callback:               Option<WindowSizeCallback<'a>>,
+    close_callback:              Option<WindowCloseCallback<'a>>,
+    refresh_callback:            Option<WindowRefreshCallback<'a>>,
+    focus_callback:              Option<WindowFocusCallback<'a>>,
+    iconify_callback:            Option<WindowIconifyCallback<'a>>,
+    framebuffer_size_callback:   Option<FramebufferSizeCallback<'a>>,
+    mouse_button_callback:       Option<MouseButtonCallback<'a>>,
+    cursor_pos_callback:         Option<CursorPosCallback<'a>>,
+    cursor_enter_callback:       Option<CursorEnterCallback<'a>>,
+    scroll_callback:             Option<ScrollCallback<'a>>,
+    key_callback:                Option<KeyCallback<'a>>,
+    char_callback:               Option<CharCallback<'a>>,
 }
 
-impl WindowCallbacks {
+impl<'a> WindowCallbacks<'a> {
     /// Initialize the struct with all callbacks set to `None`.
     fn new() -> WindowCallbacks {
         WindowCallbacks {
@@ -772,19 +774,19 @@ impl WindowCallbacks {
 
 macro_rules! set_window_callback(
     (
-        setter:   $ll_fn:ident,
-        cb_trait: $cb_trait:ident,
-        callback: $ext_callback:ident,
-        field:    $data_field:ident
+        callback: $callback:ident,
+        setter: $ll_fn:ident,
+        ext_callback: $ext_callback:ident,
+        field: $data_field:ident
     ) => ({
         unsafe {
-            self.get_callbacks().$data_field = Some(callback as ~$cb_trait);
+            self.callbacks.$data_field = Some($callback);
             ffi::$ll_fn(self.ptr, Some(callbacks::$ext_callback));
         }
     })
 )
 
-impl Window {
+impl<'a> Window<'a> {
     /// Wrapper for `glfwCreateWindow`.
     pub fn create(width: u32, height: u32, title: &str, mode: WindowMode) -> Option<Window> {
         Window::create_intern(width, height, title, mode, None)
@@ -818,19 +820,9 @@ impl Window {
             let window = Window {
                 ptr: ptr,
                 is_shared: share.is_none(),
+                callbacks: WindowCallbacks::new(),
             };
             Some(window)
-        }
-    }
-
-    unsafe fn get_callbacks(&self) -> &mut WindowCallbacks {
-        cast::transmute(ffi::glfwGetWindowUserPointer(self.ptr))
-    }
-
-    unsafe fn free_callbacks(&self) {
-        if !self.ptr.is_null() {
-            let _: ~WindowCallbacks =
-                cast::transmute(ffi::glfwGetWindowUserPointer(self.ptr));
         }
     }
 
@@ -995,59 +987,59 @@ impl Window {
     }
 
     /// Wrapper for `glfwSetWindowPosCallback`.
-    pub fn set_pos_callback<Cb: WindowPosCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetWindowPosCallback,
-                             cb_trait: WindowPosCallback,
-                             callback: window_pos_callback,
+    pub fn set_pos_callback(&mut self, callback: WindowPosCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetWindowPosCallback,
+                             ext_callback: window_pos_callback,
                              field:    pos_callback);
     }
 
     /// Wrapper for `glfwSetWindowSizeCallback`.
-    pub fn set_size_callback<Cb: WindowSizeCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetWindowSizeCallback,
-                             cb_trait: WindowSizeCallback,
-                             callback: window_size_callback,
-                             field:    size_callback);
+    pub fn set_size_callback(&mut self, callback: WindowSizeCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetWindowSizeCallback,
+                             ext_callback: window_size_callback,
+                             field:        size_callback);
     }
 
     /// Wrapper for `glfwSetWindowCloseCallback`.
-    pub fn set_close_callback<Cb: WindowCloseCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetWindowCloseCallback,
-                             cb_trait: WindowCloseCallback,
-                             callback: window_close_callback,
-                             field:    close_callback);
+    pub fn set_close_callback(&mut self, callback: WindowCloseCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetWindowCloseCallback,
+                             ext_callback: window_close_callback,
+                             field:        close_callback);
     }
 
     /// Wrapper for `glfwSetWindowRefreshCallback`.
-    pub fn set_refresh_callback<Cb: WindowRefreshCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetWindowRefreshCallback,
-                             cb_trait: WindowRefreshCallback,
-                             callback: window_refresh_callback,
-                             field:    refresh_callback);
+    pub fn set_refresh_callback(&mut self, callback: WindowRefreshCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetWindowRefreshCallback,
+                             ext_callback: window_refresh_callback,
+                             field:        refresh_callback);
     }
 
     /// Wrapper for `glfwSetWindowFocusCallback`.
-    pub fn set_focus_callback<Cb: WindowFocusCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetWindowFocusCallback,
-                             cb_trait: WindowFocusCallback,
-                             callback: window_focus_callback,
-                             field:    focus_callback);
+    pub fn set_focus_callback(&mut self, callback: WindowFocusCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetWindowFocusCallback,
+                             ext_callback: window_focus_callback,
+                             field:        focus_callback);
     }
 
     /// Wrapper for `glfwSetWindowIconifyCallback`.
-    pub fn set_iconify_callback<Cb: WindowIconifyCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetWindowIconifyCallback,
-                             cb_trait: WindowIconifyCallback,
-                             callback: window_iconify_callback,
-                             field:    iconify_callback);
+    pub fn set_iconify_callback(&mut self, callback: WindowIconifyCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetWindowIconifyCallback,
+                             ext_callback: window_iconify_callback,
+                             field:        iconify_callback);
     }
 
     /// Wrapper for `glfwSetFramebufferSizeCallback`.
-    pub fn set_framebuffer_size_callback<Cb: FramebufferSizeCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetFramebufferSizeCallback,
-                             cb_trait: FramebufferSizeCallback,
-                             callback: framebuffer_size_callback,
-                             field:    framebuffer_size_callback);
+    pub fn set_framebuffer_size_callback(&mut self, callback: FramebufferSizeCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetFramebufferSizeCallback,
+                             ext_callback: framebuffer_size_callback,
+                             field:        framebuffer_size_callback);
     }
 
     /// Wrapper for `glfwGetInputMode` called with `CURSOR`.
@@ -1106,51 +1098,51 @@ impl Window {
     }
 
     /// Wrapper for `glfwSetKeyCallback`.
-    pub fn set_key_callback<Cb: KeyCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetKeyCallback,
-                             cb_trait: KeyCallback,
-                             callback: key_callback,
-                             field:    key_callback);
+    pub fn set_key_callback(&mut self, callback: KeyCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetKeyCallback,
+                             ext_callback: key_callback,
+                             field:        key_callback);
     }
 
     /// Wrapper for `glfwSetCharCallback`.
-    pub fn set_char_callback<Cb: CharCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetCharCallback,
-                             cb_trait: CharCallback,
-                             callback: char_callback,
-                             field:    char_callback);
+    pub fn set_char_callback(&mut self, callback: CharCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetCharCallback,
+                             ext_callback: char_callback,
+                             field:        char_callback);
     }
 
     /// Wrapper for `glfwSetMouseButtonCallback`.
-    pub fn set_mouse_button_callback<Cb: MouseButtonCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetMouseButtonCallback,
-                             cb_trait: MouseButtonCallback,
-                             callback: mouse_button_callback,
-                             field:    mouse_button_callback);
+    pub fn set_mouse_button_callback(&mut self, callback: MouseButtonCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetMouseButtonCallback,
+                             ext_callback: mouse_button_callback,
+                             field:        mouse_button_callback);
     }
 
     /// Wrapper for `glfwSetCursorPosCallback`.
-    pub fn set_cursor_pos_callback<Cb: CursorPosCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetCursorPosCallback,
-                             cb_trait: CursorPosCallback,
-                             callback: cursor_pos_callback,
-                             field:    cursor_pos_callback);
+    pub fn set_cursor_pos_callback(&mut self, callback: CursorPosCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetCursorPosCallback,
+                             ext_callback: cursor_pos_callback,
+                             field:        cursor_pos_callback);
     }
 
     /// Wrapper for `glfwSetCursorEnterCallback`.
-    pub fn set_cursor_enter_callback<Cb: CursorEnterCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetCursorEnterCallback,
-                             cb_trait: CursorEnterCallback,
-                             callback: cursor_enter_callback,
-                             field:    cursor_enter_callback);
+    pub fn set_cursor_enter_callback(&mut self, callback: CursorEnterCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetCursorEnterCallback,
+                             ext_callback: cursor_enter_callback,
+                             field:        cursor_enter_callback);
     }
 
     /// Wrapper for `glfwSetScrollCallback`.
-    pub fn set_scroll_callback<Cb: ScrollCallback + Send>(&self, callback: ~Cb) {
-        set_window_callback!(setter:   glfwSetScrollCallback,
-                             cb_trait: ScrollCallback,
-                             callback: scroll_callback,
-                             field:    scroll_callback);
+    pub fn set_scroll_callback(&mut self, callback: ScrollCallback<'a>) {
+        set_window_callback!(callback:     callback,
+                             setter:       glfwSetScrollCallback,
+                             ext_callback: scroll_callback,
+                             field:        scroll_callback);
     }
 
     /// Wrapper for `glfwGetClipboardString`.
@@ -1234,7 +1226,7 @@ pub fn get_x11_display() -> *c_void {
 }
 
 #[unsafe_destructor]
-impl Drop for Window {
+impl<'a> Drop for Window<'a> {
     /// Closes the window and removes all associated callbacks.
     ///
     /// Wrapper for `glfwDestroyWindow`.
@@ -1242,8 +1234,6 @@ impl Drop for Window {
         if !self.is_shared {
             unsafe { ffi::glfwDestroyWindow(self.ptr); }
         }
-
-        unsafe { self.free_callbacks() }
     }
 }
 

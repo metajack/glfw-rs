@@ -35,11 +35,10 @@ pub extern "C" fn error_callback(error: c_int, description: *c_char) {
     }));
 }
 
-pub fn set_error_callback<Cb: ErrorCallback + Send>(callback: ~Cb, f: |ffi::GLFWerrorfun| ) {
-    local_data::set(error_callback_tls_key, callback as ~ErrorCallback);
+pub fn set_error_callback(callback: ~ErrorCallback, f: |ffi::GLFWerrorfun| ) {
+    local_data::set(error_callback_tls_key, callback);
     f(error_callback);
 }
-
 
 pub extern "C" fn monitor_callback(monitor: *ffi::GLFWmonitor, event: c_int) {
     local_data::get(monitor_callback_tls_key, (|data| {
@@ -58,18 +57,18 @@ macro_rules! window_callback(
     (fn $name:ident () => $field:ident()) => (
          pub extern "C" fn $name(window: *ffi::GLFWwindow) {
             unsafe {
-                let window = Window { ptr: window, is_shared: false };
-                window.get_callbacks().$field.as_ref().map(|cb| cb.call(&window));
-                cast::forget(window);
+                let user_ptr = ffi::glfwGetWindowUserPointer(window);
+                let window: &Window = cast::transmute(user_ptr);
+                window.callbacks.$field.as_ref().map(|cb| (*cb)(window));
             }
          }
      );
     (fn $name:ident ($($ext_arg:ident: $ext_arg_ty:ty),*) => $field:ident($($arg_conv:expr),*)) => (
          pub extern "C" fn $name(window: *ffi::GLFWwindow $(, $ext_arg: $ext_arg_ty)*) {
             unsafe {
-                let window = Window { ptr: window, is_shared: false };
-                window.get_callbacks().$field.as_ref().map(|cb| cb.call(&window $(, $arg_conv)*));
-                cast::forget(window);
+                let user_ptr = ffi::glfwGetWindowUserPointer(window);
+                let window: &Window = cast::transmute(user_ptr);
+                window.callbacks.$field.as_ref().map(|cb| (*cb)(window $(, $arg_conv)*));
             }
          }
      );
